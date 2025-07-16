@@ -6,18 +6,7 @@ The project consists of a Rust-powered backend API and a React-based progressive
 
 ## Installation
 
-### Prerequisites
-
-- Rust (with `cargo`)
-- Node.js (for the frontend)
-- PostgreSQL (for the database)
-
-### Backend Setup
-
-1. Clone the repository:
-   ```bash
-   git clone
-
+See [INSTALL.md](INSTALL.md) for detailed installation instructions.
 
 ## License
 

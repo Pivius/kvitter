@@ -4,4 +4,5 @@ dist/
 frontend/dist/
 backend/target/
 .env
+.env.test
 .DS_Store

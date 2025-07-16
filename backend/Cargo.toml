@@ -6,9 +6,19 @@ edition = "2024"
 [dependencies]
 axum = "0.8.4"
 tokio = { version = "1.46.1", features = ["full"] }
-serde = "1.0.219"
+serde = {version = "1.0.219", features = ["derive"] }
 serde_json = "1.0"
-sqlx = { version = "0.8.6", features = ["runtime-tokio", "postgres", "macros"] }
+sqlx = { version = "0.8.6", features = ["runtime-tokio", "tls-native-tls", "postgres", "uuid", "chrono", "macros"] }
 dotenvy = "0.15.7"
-uuid = { version = "1.17.0", features = ["v4"] }
-tower-http = "0.6.6"
+uuid = { version = "1.17.0", features = ["v4", "serde"] }
+tower-http = { version = "0.6.6", features = ["cors", "trace"] }
+argon2 = "0.5.3"
+rand = "0.9.1"
+jsonwebtoken = "9.3.1"
+thiserror = "2.0.12"
+chrono = { version = "0.4.41", features = ["serde"] }
+tower = "0.5.2"
+tracing = "0.1.41"
+tracing-subscriber = "0.3.19"
+ctor = "0.4.2"
+async-trait = "0.1.88"
