@@ -41,7 +41,7 @@ async fn test_signup(pool: PgPool) {
 
 	let payload = json!({
 		"email": "test@example.com",
-		"password": "securepassword"
+		"password": "SecurePassword123"
 	});
 
 	let response = app
@@ -65,7 +65,7 @@ async fn test_login(pool: PgPool) {
 
 	let payload = json!({
 		"email": "test@example.com",
-		"password": "securepassword"
+		"password": "SecurePassword123"
 	});
 
 	let signup_response = app
@@ -115,12 +115,12 @@ async fn test_login_invalid_password(pool: PgPool) {
 
 	let correct = json!({
 		"email": "test@example.com",
-		"password": "correctpassword"
+		"password": "CorrectPassword123"
 	});
 
 	let wrong = json!({
 		"email": "test@example.com",
-		"password": "wrongpassword"
+		"password": "WrongPassword123"
 	});
 
 	let _ = app
@@ -157,7 +157,7 @@ async fn test_get_me(pool: PgPool) {
 
 	let payload = json!({
 		"email": "test@example.com",
-		"password": "securepassword"
+		"password": "SecurePassword123"
 	});
 
 	let signup_response = app
@@ -222,7 +222,7 @@ async fn test_change_password(pool: PgPool) {
 
 	let payload = json!({
 		"email": "test@example.com",
-		"password": "securepassword"
+		"password": "SecurePassword123"
 	});
 
 	let signup_response = app
@@ -261,8 +261,8 @@ async fn test_change_password(pool: PgPool) {
 	).unwrap();
 	let token = token_json.get("token").expect("token in login response").as_str().unwrap();
 	let change_password_payload = json!({
-		"old_password": "securepassword",
-		"new_password": "newsecurepassword"
+		"old_password": "SecurePassword123",
+		"new_password": "NewSecurePassword123"
 	});
 	let change_password_response = app
 		.clone()
@@ -289,7 +289,7 @@ async fn test_change_password(pool: PgPool) {
 				.header("Content-Type", "application/json")
 				.body(Body::from(json!({
 					"email": "test@example.com",
-					"password": "newsecurepassword"
+					"password": "NewSecurePassword123"
 				}).to_string()))
 				.unwrap(),
 		)
@@ -315,7 +315,7 @@ async fn test_change_password(pool: PgPool) {
 				.header("Content-Type", "application/json")
 				.body(Body::from(json!({
 					"email": "test@example.com",
-					"password": "securepassword"
+					"password": "SecurePassword123"
 				}).to_string()))
 				.unwrap(),
 		)
@@ -333,8 +333,8 @@ async fn test_change_password(pool: PgPool) {
 				.header("Authorization", format!("Bearer {}", new_token))
 				.header("Content-Type", "application/json")
 				.body(Body::from(json!({
-					"old_password": "wrongpassword",
-					"new_password": "anothernewpassword"
+					"old_password": "WrongPassword123",
+					"new_password": "AnotherNewPassword123"
 				}).to_string()))
 				.unwrap(),
 		)
@@ -352,7 +352,7 @@ async fn test_change_password(pool: PgPool) {
 				.header("Authorization", format!("Bearer {}", new_token))
 				.header("Content-Type", "application/json")
 				.body(Body::from(json!({
-					"old_password": "newsecurepassword",
+					"old_password": "WrongPassword123",
 					"new_password": ""
 				}).to_string()))
 				.unwrap(),

@@ -6,6 +6,7 @@ use chrono::Utc;
 use crate::models::user::{RegisterPayload, User};
 use crate::auth::hash::{hash_password, verify_password};
 use crate::auth::jwt::Claims;
+use crate::routes::user::password_is_valid;
 use crate::util::error::AppError;
 use crate::util::result::{AppResult, AppResponse};
 use serde_json::json;
@@ -23,19 +24,24 @@ pub async fn signup(
 }
 
 async fn try_signup(pool: &PgPool, payload: RegisterPayload) -> AppResult<User> {
-    let hashed = hash_password(&payload.password)
-        .map_err(|_| AppError::internal("Failed to hash password"))?;
+	match password_is_valid(&payload.password) {
+		Ok(_) => {
+			let hashed = hash_password(&payload.password)
+				.map_err(|_| AppError::internal("Failed to hash password"))?;
 
-    let user: User = sqlx::query_as::<_, User>(
-        "INSERT INTO users (email, password_hash) VALUES ($1, $2) RETURNING *"
-    )
-        .bind(&payload.email)
-        .bind(&hashed)
-        .fetch_one(pool)
-        .await
-        .map_err(|_| AppError::internal("Failed to create user"))?;
+			let user: User = sqlx::query_as::<_, User>(
+				"INSERT INTO users (email, password_hash) VALUES ($1, $2) RETURNING *"
+			)
+				.bind(&payload.email)
+				.bind(&hashed)
+				.fetch_one(pool)
+				.await
+				.map_err(|_| AppError::internal("Failed to create user"))?;
 
-    Ok(user)
+			Ok(user)
+		},
+		Err(err) => return Err(err),
+	}
 }
 
 pub async fn login(

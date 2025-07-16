@@ -9,6 +9,7 @@ use crate::models::user::{User, UpdateUserPayload, ChangePasswordPayload, Public
 use crate::auth::hash::hash_password;
 use crate::auth::jwt::AuthUser;
 use crate::util::result::{AppResult, AppResponse};
+use crate::util::error::AppError;
 
 pub async fn get_user_by_uuid(
 	Path(user_id): Path<String>,
@@ -119,42 +120,80 @@ pub async fn get_me(
 	}
 }
 
+/// Validates the password according to your application's requirements.
+/// Prerequisites include
+/// - Minimum length
+/// - Contains at least one uppercase letter
+/// - Contains at least one lowercase letter
+/// - Contains at least one digit
+pub fn password_is_valid(password: &str) -> AppResult<()> {
+	if password.len() < 8 {
+		return Err(AppError::bad_request("Password must be at least 8 characters long"));
+	}
+	if !password.chars().any(|c| c.is_uppercase()) {
+		return Err(AppError::bad_request("Password must contain at least one uppercase letter"));
+	}
+	if !password.chars().any(|c| c.is_lowercase()) {
+		return Err(AppError::bad_request("Password must contain at least one lowercase letter"));
+	}
+	if !password.chars().any(|c| c.is_digit(10)) {
+		return Err(AppError::bad_request("Password must contain at least one digit"));
+	}
+	Ok(())
+}
+
 pub async fn change_password(
 	AuthUser(user_id): AuthUser,
 	State(pool): State<PgPool>,
 	Json(payload): Json<ChangePasswordPayload>,
 ) -> impl IntoResponse {
-	if (payload.old_password.is_empty() || payload.new_password.is_empty()) {
-		return (StatusCode::BAD_REQUEST, Json("Old and new passwords cannot be empty")).into_response();
+	match password_is_valid(&payload.new_password) {
+		Ok(_) => {
+			let user = sqlx::query_as::<_, User>("SELECT * FROM users WHERE id = $1")
+				.bind(&user_id)
+				.fetch_one(&pool)
+				.await;
+
+			let user = match user {
+				Ok(u) => u,
+				Err(_) => return (StatusCode::NOT_FOUND, Json("User not found")).into_response(),
+			};
+
+			if !crate::auth::hash::verify_password(&payload.old_password, &user.password_hash).unwrap_or(false) {
+				return (StatusCode::UNAUTHORIZED, Json("Invalid old password")).into_response();
+			}
+
+			let hashed = match hash_password(&payload.new_password) {
+				Ok(h) => h,
+				Err(_) => return (StatusCode::INTERNAL_SERVER_ERROR, Json("Failed to hash password")).into_response(),
+			};
+
+			let res = sqlx::query("UPDATE users SET password_hash = $1 WHERE id = $2")
+				.bind(&hashed)
+				.bind(&user_id)
+				.execute(&pool)
+				.await;
+
+			match res {
+				Ok(_) => (StatusCode::OK, Json("Password updated")).into_response(),
+				Err(_) => (StatusCode::INTERNAL_SERVER_ERROR, Json("Failed to update password")).into_response(),
+			}
+		},
+		Err(err) => return err.into_response(),
 	}
+}
 
-	let user = sqlx::query_as::<_, User>("SELECT * FROM users WHERE id = $1")
-		.bind(&user_id)
-		.fetch_one(&pool)
-		.await;
+#[cfg(test)]
+mod tests {
+	use super::*;
 
-	let user = match user {
-		Ok(u) => u,
-		Err(_) => return (StatusCode::NOT_FOUND, Json("User not found")).into_response(),
-	};
-
-	if !crate::auth::hash::verify_password(&payload.old_password, &user.password_hash).unwrap_or(false) {
-		return (StatusCode::UNAUTHORIZED, Json("Invalid old password")).into_response();
-	}
-
-	let hashed = match hash_password(&payload.new_password) {
-		Ok(h) => h,
-		Err(_) => return (StatusCode::INTERNAL_SERVER_ERROR, Json("Failed to hash password")).into_response(),
-	};
-
-	let res = sqlx::query("UPDATE users SET password_hash = $1 WHERE id = $2")
-		.bind(&hashed)
-		.bind(&user_id)
-		.execute(&pool)
-		.await;
-
-	match res {
-		Ok(_) => (StatusCode::OK, Json("Password updated")).into_response(),
-		Err(_) => (StatusCode::INTERNAL_SERVER_ERROR, Json("Failed to update password")).into_response(),
+	#[test]
+	fn test_password_is_valid() {
+		assert!(password_is_valid("Valid1").is_err());
+		assert!(password_is_valid("validpassword").is_err());
+		assert!(password_is_valid("VALIDPASSWORD").is_err());
+		assert!(password_is_valid("ValidPassword").is_err());
+		assert!(password_is_valid("Valid1Password").is_ok());
+		assert!(password_is_valid("Valid1Password!").is_ok());
 	}
 }
