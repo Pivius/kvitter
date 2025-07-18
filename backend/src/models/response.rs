@@ -56,6 +56,16 @@ where
 		}
 	}
 
+	pub fn is_success(&self) -> bool {
+		StatusCode::from_u16(self.status).unwrap().is_success()
+	}
+
+	pub fn get_error(&self) -> Option<AppError> {
+		match &self.error {
+			Some(err) => Some(AppError::Internal(err.clone())),
+			None => None,
+		}
+	}
 }
 
 impl<T> IntoResponse for ApiResponse<T> 

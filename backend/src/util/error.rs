@@ -44,7 +44,6 @@ impl AppError {
 	}
 }
 
-
 pub type AppResult<T> = Result<T, AppError>;
 
 impl IntoResponse for AppError {

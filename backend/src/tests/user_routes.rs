@@ -60,6 +60,45 @@ async fn test_signup(pool: PgPool) {
 }
 
 #[sqlx::test]
+async fn test_signup_used_email(pool: PgPool) {
+	let app = build_app(pool.clone());
+
+	let payload = json!({
+		"email": "test@example.com",
+		"password": "SecurePassword123"
+	});
+
+	let response = app
+		.clone()
+		.oneshot(
+			Request::builder()
+				.method("POST")
+				.uri("/signup")
+				.header("Content-Type", "application/json")
+				.body(Body::from(payload.to_string()))
+				.unwrap(),
+		)
+		.await
+		.unwrap();
+
+	assert_eq!(response.status(), StatusCode::CREATED);
+
+	let second_response = app
+		.oneshot(
+			Request::builder()
+				.method("POST")
+				.uri("/signup")
+				.header("Content-Type", "application/json")
+				.body(Body::from(payload.to_string()))
+				.unwrap(),
+		)
+		.await
+		.unwrap();
+
+	assert_eq!(second_response.status(), StatusCode::UNAUTHORIZED);
+}
+
+#[sqlx::test]
 async fn test_signup_invalid_password(pool: PgPool) {
 	let app = build_app(pool);
 

@@ -21,21 +21,20 @@ pub struct AuthResponse {
 
 pub async fn is_email_unique(
 	State(pool): State<PgPool>,
-	Json(payload): Json<RegisterPayload>,
-) -> impl IntoResponse {
-	let result: AppResult<bool> = async {
-		let count = sqlx::query_scalar::<_, i64>(
-			"SELECT COUNT(*) FROM users WHERE email = $1"
-		)
-		.bind(&payload.email)
-		.fetch_one(&pool)
-		.await
-		.map_err(|_| AppError::Internal("Failed to check email uniqueness".into()))?;
+	email: String,
+) -> AppResult<bool> {
+	let count = sqlx::query_scalar::<_, i64>(
+		"SELECT COUNT(*) FROM users WHERE email = $1"
+	)
+	.bind(&email)
+	.fetch_one(&pool)
+	.await
+	.map_err(|_| AppError::Internal("Failed to check email uniqueness".into()))?;
 
-		Ok(count == 0)
-	}.await;
-
-	ApiResponse::from_result(result, StatusCode::OK).into_response()
+	match count {
+		0 => Ok(true), // Email is unique
+		_ => Err(AppError::Auth("Email is already taken".into())),
+	}
 }
 
 pub async fn signup(
@@ -43,8 +42,11 @@ pub async fn signup(
 	Json(payload): Json<RegisterPayload>,
 ) -> impl IntoResponse {
 	let result: AppResult<AuthResponse> = async {
-		match password_is_valid(&payload.password) {
-			Ok(_) => {
+		match (
+			password_is_valid(&payload.password), 
+			is_email_unique(State(pool.clone()), payload.email.clone()).await
+		) {
+			(Ok(_), Ok(_)) => {
 				let hashed = hash_password(&payload.password)
 					.map_err(|_| AppError::Internal("Failed to hash password".into()))?;
 				let user = sqlx::query_as::<_, User>(
@@ -68,7 +70,9 @@ pub async fn signup(
 					Err(err) => Err(err),
 				}
 			},
-			Err(err) => return Err(err),
+			(_, Err(err)) => Err(err),
+			(Err(err), _) => Err(err),
+			_ => Err(AppError::Internal("Unexpected error".into())),
 		}
 	}.await;
 
