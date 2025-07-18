@@ -26,7 +26,6 @@ async fn main() -> Result<(), sqlx::Error> {
 		.without_v07_checks()
 		.route("/auth/signup", post(routes::auth::signup))
 		.route("/health", get(routes::auth::health_check))
-		.route("/user/:id", get(routes::user::get_user_by_uuid).put(routes::user::update_user).delete(routes::user::delete_user))
 		.layer(CorsLayer::permissive())
 		.with_state(pool);
 	let listener = tokio::net::TcpListener::bind("0.0.0.0:5000").await.unwrap();
