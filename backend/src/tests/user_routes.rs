@@ -6,7 +6,7 @@ use serde_json::json;
 use sqlx::{PgPool};
 use tower::ServiceExt;
 use dotenvy::from_filename;
-use crate::{routes::auth::{signup, login, health_check}, models::user::RegisterPayload, routes::user};
+use crate::{models::{response::ApiResponse, user::{PublicUser, RegisterPayload}}, routes::{auth::{health_check, login, signup, AuthResponse}, user}, util::error::AppResult};
 
 #[ctor::ctor]
 fn init() {
@@ -60,6 +60,30 @@ async fn test_signup(pool: PgPool) {
 }
 
 #[sqlx::test]
+async fn test_signup_invalid_password(pool: PgPool) {
+	let app = build_app(pool);
+
+	let payload = json!({
+		"email": "test@example.com",
+		"password": "short"
+	});
+
+	let response = app
+		.oneshot(
+			Request::builder()
+				.method("POST")
+				.uri("/signup")
+				.header("Content-Type", "application/json")
+				.body(Body::from(payload.to_string()))
+				.unwrap(),
+		)
+		.await
+		.unwrap();
+
+	assert_eq!(response.status(), StatusCode::BAD_REQUEST);
+}
+
+#[sqlx::test]
 async fn test_login(pool: PgPool) {
 	let app = build_app(pool.clone());
 
@@ -97,16 +121,14 @@ async fn test_login(pool: PgPool) {
 
 	assert_eq!(login_response.status(), StatusCode::OK);
 
-	//let user_data = axum::body::to_bytes(login_response.into_body(), 1024 * 1024).await.unwrap();
-	//let user_json: serde_json::Value = serde_json::from_slice(&user_data).unwrap();
-	let token_json: serde_json::Value = serde_json::from_slice(
-		&axum::body::to_bytes(login_response.into_body(), 1024 * 1024)
-		.await.unwrap()
-	).unwrap();
-	let token = token_json.get("token").expect("token in login response");
-	
-	assert!(token.is_string(), "Token should not be empty");
+	let response_body = axum::body::to_bytes(login_response.into_body(), 8 * 1024).await.unwrap();
+	let api_response: ApiResponse<AuthResponse> = serde_json::from_slice(&response_body).unwrap();
+	let auth_response = api_response.data.unwrap();
 
+	assert!(!&auth_response.token.is_empty(), "Token should not be empty");
+	let public_user = &auth_response.user;
+	assert_eq!(&public_user.email, payload["email"].as_str().unwrap());
+	assert_eq!(&public_user.id, &auth_response.user.id);
 }
 
 #[sqlx::test]
@@ -188,12 +210,10 @@ async fn test_get_me(pool: PgPool) {
 		.unwrap();
 	assert_eq!(login_response.status(), StatusCode::OK);
 
-	let token_json: serde_json::Value = serde_json::from_slice(
-		&axum::body::to_bytes(login_response.into_body(), 1024 * 1024)
-		.await.unwrap()
-	).unwrap();
-	let token = token_json.get("token").expect("token in login response").as_str().unwrap();
-
+	let response_body = axum::body::to_bytes(login_response.into_body(), 8 * 1024).await.unwrap();
+	let api_response: ApiResponse<AuthResponse> = serde_json::from_slice(&response_body).unwrap();
+	let auth_response = api_response.data.unwrap();
+	let token = auth_response.token;
 	let me_response = app
 		.clone()
 		.oneshot(
@@ -208,12 +228,12 @@ async fn test_get_me(pool: PgPool) {
 		.unwrap();
 	assert_eq!(me_response.status(), StatusCode::OK);
 
-	let me_data = axum::body::to_bytes(me_response.into_body(), 1024 * 1024).await.unwrap();
-	let me_json: serde_json::Value = serde_json::from_slice(&me_data).unwrap();
+	let user_data = axum::body::to_bytes(me_response.into_body(), 8 * 1024).await.unwrap();
+	let user_response: ApiResponse<PublicUser> = serde_json::from_slice(&user_data).unwrap();
+	let user = user_response.data.unwrap();
 
-	assert_eq!(me_json.get("email").unwrap().as_str().unwrap(), payload["email"].as_str().unwrap());
-	assert!(me_json.get("id").is_some());
-	assert!(me_json.get("created_at").is_some());
+	assert_eq!(&user.email, payload["email"].as_str().unwrap());
+	assert_eq!(&user.id, &auth_response.user.id);
 }
 
 #[sqlx::test]
@@ -255,11 +275,10 @@ async fn test_change_password(pool: PgPool) {
 
 	assert_eq!(login_response.status(), StatusCode::OK);
 
-	let token_json: serde_json::Value = serde_json::from_slice(
-		&axum::body::to_bytes(login_response.into_body(), 1024 * 1024)
-		.await.unwrap()
-	).unwrap();
-	let token = token_json.get("token").expect("token in login response").as_str().unwrap();
+	let response_body = axum::body::to_bytes(login_response.into_body(), 8 * 1024).await.unwrap();
+	let api_response: ApiResponse<AuthResponse> = serde_json::from_slice(&response_body).unwrap();
+	let auth_response = api_response.data.unwrap();
+	let token = auth_response.token;
 	let change_password_payload = json!({
 		"old_password": "SecurePassword123",
 		"new_password": "NewSecurePassword123"
@@ -277,8 +296,8 @@ async fn test_change_password(pool: PgPool) {
 		)
 		.await
 		.unwrap();
-
-	assert_eq!(change_password_response.status(), StatusCode::OK);
+	
+	assert_eq!(change_password_response.status(), StatusCode::NO_CONTENT);
 
 	let login_with_new_password_response = app
 		.clone()
@@ -298,12 +317,10 @@ async fn test_change_password(pool: PgPool) {
 
 	assert_eq!(login_with_new_password_response.status(), StatusCode::OK);
 
-	let new_token_json: serde_json::Value = serde_json::from_slice(
-		&axum::body::to_bytes(login_with_new_password_response.into_body(), 1024 * 1024)
-		.await.unwrap()
-	).unwrap();
-	let new_token = new_token_json.get("token").expect("token in login response").as_str().unwrap();
-
+	let new_response_body = axum::body::to_bytes(login_with_new_password_response.into_body(), 8 * 1024).await.unwrap();
+	let new_api_response: ApiResponse<AuthResponse> = serde_json::from_slice(&new_response_body).unwrap();
+	let new_auth_response = new_api_response.data.unwrap();
+	let new_token = new_auth_response.token;
 	assert!(!new_token.is_empty(), "New token should not be empty");
 
 	let login_with_old_password_response = app
