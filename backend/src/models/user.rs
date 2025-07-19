@@ -31,6 +31,12 @@ impl From<&User> for PublicUser {
 	}
 }
 
+impl Into<PublicUser> for User {
+	fn into(self) -> PublicUser {
+		PublicUser::from(&self)
+	}
+}
+
 #[derive(Deserialize)]
 pub struct RegisterPayload {
 	pub email: String,
