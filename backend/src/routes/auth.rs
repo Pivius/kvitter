@@ -1,17 +1,24 @@
-use axum::{extract::State, Json, response::IntoResponse};
-use axum::http::StatusCode;
-use sqlx::PgPool;
-use crate::models::{
-	user::{RegisterPayload, User, PublicUser},
-	response::ApiResponse
+use axum::{
+	extract::State, Json, 
+	response::IntoResponse, http::StatusCode
 };
-use crate::auth::hash::{hash_password, verify_password};
-use crate::auth::jwt::generate_jwt_token;
-use crate::routes::user::password_is_valid;
-use crate::util::error::{AppError, AppResult};
+use sqlx::PgPool;
+use crate::{
+	models::{
+		user::{RegisterPayload, User, PublicUser},
+		response::ApiResponse
+	},
+	auth::{
+		hash::{hash_password, verify_password},
+		jwt::generate_jwt_token
+	},
+	util::{
+		validation::validate_password,
+		error::{AppError, AppResult},
+		user_service::{is_email_unique, fetch_user_by_email}
+	}
+};
 use serde::{Deserialize, Serialize};
-
-const JWT_EXPIRATION_HOURS: i64 = 24;
 
 #[derive(Serialize, Deserialize)]
 pub struct AuthResponse {
@@ -19,61 +26,25 @@ pub struct AuthResponse {
 	pub user: PublicUser,
 }
 
-pub async fn is_email_unique(
-	State(pool): State<PgPool>,
-	email: String,
-) -> AppResult<bool> {
-	let count = sqlx::query_scalar::<_, i64>(
-		"SELECT COUNT(*) FROM users WHERE email = $1"
-	)
-	.bind(&email)
-	.fetch_one(&pool)
-	.await
-	.map_err(|_| AppError::Internal("Failed to check email uniqueness".into()))?;
-
-	match count {
-		0 => Ok(true), // Email is unique
-		_ => Err(AppError::Auth("Email is already taken".into())),
-	}
-}
-
 pub async fn signup(
 	State(pool): State<PgPool>,
 	Json(payload): Json<RegisterPayload>,
 ) -> impl IntoResponse {
-	let result: AppResult<AuthResponse> = async {
-		match (
-			password_is_valid(&payload.password), 
-			is_email_unique(State(pool.clone()), payload.email.clone()).await
-		) {
-			(Ok(_), Ok(_)) => {
-				let hashed = hash_password(&payload.password)
-					.map_err(|_| AppError::Internal("Failed to hash password".into()))?;
-				let user = sqlx::query_as::<_, User>(
-					"INSERT INTO users (email, password_hash) VALUES ($1, $2) RETURNING *"
-					)
-					.bind(&payload.email)
-					.bind(&hashed)
-					.fetch_one(&pool)
-					.await
-					.map_err(|_| AppError::Internal("Failed to create user".into()))?;
+	let result: AppResult<()> = async {
+		is_email_unique(&pool, &payload.email).await?;
+		validate_password(&payload.password)?;
 
-				let token: AppResult<String> = generate_jwt_token(&user)
-					.map_err(|_| AppError::Auth("Failed to generate token".into()));
-				let public_user = PublicUser::from(&user);
+		let password_hash = hash_password(&payload.password)
+			.map_err(|err| AppError::Internal(err.to_string()))?;
 
-				match token {
-					Ok(token) => Ok(AuthResponse {
-						token,
-						user: public_user,
-					}),
-					Err(err) => Err(err),
-				}
-			},
-			(_, Err(err)) => Err(err),
-			(Err(err), _) => Err(err),
-			_ => Err(AppError::Internal("Unexpected error".into())),
-		}
+		sqlx::query_as::<_, User>("INSERT INTO users (email, password_hash) VALUES ($1, $2) RETURNING *")
+			.bind(&payload.email)
+			.bind(&password_hash)
+			.fetch_one(&pool)
+			.await
+			.map_err(|_| AppError::Internal("Failed to create user".into()))?;
+
+		Ok(())
 	}.await;
 
 	ApiResponse::from_result(result, StatusCode::CREATED).into_response()
@@ -84,29 +55,27 @@ pub async fn login(
 	Json(payload): Json<RegisterPayload>,
 ) -> impl IntoResponse {
 	let result: AppResult<AuthResponse> = async {
-		let user = sqlx::query_as::<_, User>
-			("SELECT * FROM users WHERE email = $1")
-			.bind(&payload.email)
-			.fetch_one(&pool)
-			.await
-			.map_err(|_| AppError::Auth("Invalid credentials".into()))?;
+		let user = fetch_user_by_email(&pool, &payload.email).await
+			.map_err(|err| match err {
+				AppError::NotFound(_) => AppError::Auth("Invalid credentials".into()),
+				_ => err,
+			})?;
+		let is_valid = verify_password(&payload.password, &user.password_hash)
+			.map_err(|err| AppError::Internal(err.to_string()))?;
 
-		match verify_password(&payload.password, &user.password_hash) {
-			Ok(true) => {
-				let token: AppResult<String> = generate_jwt_token(&user)
-					.map_err(|_| AppError::Auth("Failed to generate token".into()));
-				let public_user = PublicUser::from(&user);
+		match is_valid {
+			true => {
+				let token = generate_jwt_token(&user)
+					.map_err(|_| AppError::Auth("Failed to generate token".into()))?;
 
-				match token {
-					Ok(token) => Ok(AuthResponse {
-						token,
-						user: public_user,
-					}),
-					Err(err) => Err(err),
-				}
+				Ok(AuthResponse {
+					token,
+					user: user.into(),
+				})
 			},
-			_ => Err(AppError::Auth("Invalid credentials".into()))
+			false => Err(AppError::Auth("Invalid credentials".into())),
 		}
+
 	}.await;
 
 	ApiResponse::from_result(result, StatusCode::OK).into_response()
