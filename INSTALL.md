@@ -82,7 +82,9 @@ Open **SQL Shell (psql)**, then:
 ```sql
 	CREATE USER admin WITH PASSWORD 'password';
 	CREATE DATABASE kvitter_db OWNER admin;
+	CREATE DATABASE kvitter_test OWNER admin;
 	GRANT ALL PRIVILEGES ON DATABASE kvitter_db TO admin;
+	GRANT ALL PRIVILEGES ON DATABASE kvitter_test TO admin;
 	\q
 ```
 
