@@ -1,6 +1,6 @@
 use axum::{
-	extract::{FromRequestParts}, 
-	http::{request::Parts, StatusCode}
+	extract::FromRequestParts, 
+	http::request::Parts
 };
 use jsonwebtoken::{
 	decode, encode, Algorithm, 
@@ -32,21 +32,6 @@ impl From<PublicUser> for AuthUser {
 	fn from(user: PublicUser) -> Self {
 		AuthUser(user.id)
 	}
-}
-
-#[derive(Debug)]
-pub struct JwtError {
-	pub kind: JwtErrorKind,
-	pub message: String,
-}
-
-#[derive(Debug)]
-pub enum JwtErrorKind {
-	Missing,
-	Invalid,
-	Expired,
-	EncodingFailed,
-	SecretNotFound,
 }
 
 impl<S> FromRequestParts<S> for AuthUser
@@ -125,7 +110,6 @@ mod tests {
 			password_hash: "<PasswordHash>".into(),
 			created_at: chrono::Utc::now().naive_utc(),
 		};
-
 		let token = generate_jwt_token(&user).unwrap();
 		let claims = validate_jwt(&token).unwrap();
 
